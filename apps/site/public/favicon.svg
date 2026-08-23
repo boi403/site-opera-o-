@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Araguaia Palace Hotel">
+  <rect width="64" height="64" rx="12" fill="#002D44"/>
+  <path d="M14 50h36v-5H14v5Z" fill="#FFD700"/>
+  <path d="M18 41h28V20L32 12 18 20v21Z" fill="#FFFFFF"/>
+  <path d="M23 41V24h6v17h-6Zm12 0V24h6v17h-6Z" fill="#002D44"/>
+  <path d="M18 20 32 12l14 8v5L32 17 18 25v-5Z" fill="#E31B23"/>
+</svg>

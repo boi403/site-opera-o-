@@ -1,0 +1,7 @@
+{
+  "name": "Araguaia Palace Hotel",
+  "description": "Hotel em Alto Araguaia - MT com localizacao central, suites, contato direto e roteiro turistico regional.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

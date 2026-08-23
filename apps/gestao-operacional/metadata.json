@@ -1,0 +1,7 @@
+{
+  "name": "Hotel Palácio Araguaia  System",
+  "description": "A comprehensive hotel management platform for rooms, housekeeping, maintenance, and inventory with advanced analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

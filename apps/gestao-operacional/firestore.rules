@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.token.email)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'ADMIN';
+    }
+
+    match /users/{email} {
+      // Cada pessoa le o proprio perfil; admins leem qualquer um (equipe).
+      allow read: if isSignedIn() && (request.auth.token.email == email || isAdmin());
+
+      // Bootstrap: o dono do hotel pode criar o PROPRIO perfil como ADMIN
+      // uma unica vez, quando o documento ainda nao existe (create, nao
+      // update). Depois disso, so admins ja cadastrados podem criar novos
+      // perfis de equipe.
+      allow create: if isSignedIn() && request.auth.token.email == email && (
+        (email == 'mateus.orezende@gmail.com' && request.resource.data.role == 'ADMIN') ||
+        isAdmin()
+      );
+
+      allow update, delete: if isAdmin();
+    }
+  }
+}

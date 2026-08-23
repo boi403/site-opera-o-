@@ -1,0 +1,39 @@
+# Dependências
+node_modules/
+
+# Builds e caches de build (regeráveis a partir do código-fonte)
+dist/
+build/
+build-kinghost/
+build-test/
+.next/
+.next-build/
+*.tsbuildinfo
+
+# Variáveis de ambiente (segredos) — nunca commitar
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Pacotes de deploy / exports de banco (binários regeráveis, não são fonte)
+*.zip
+
+# Snapshots de builds antigos pra upload manual no kinghost — não é fonte,
+# e alguns têm config.php/senhas de builds passados.
+deploy-archive/
+
+# Scaffolding de agente de IA de terceiros, não faz parte do projeto
+.agent/
+.temp_ag_kit/
+.temp_ag_kit_blocked_*/
+
+# Editor / SO
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

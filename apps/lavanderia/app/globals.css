@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Nunito+Sans:wght@400;600;700&display=swap");
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-hotel-50 text-hotel-900 font-sans;
+  background-image: theme("backgroundImage.mesh-hero");
+  background-attachment: fixed;
+}
+
+h1, h2, h3, h4 {
+  @apply font-serif;
+}
+
+::selection {
+  background-color: theme("colors.hotel.300");
+  color: theme("colors.hotel.900");
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: theme("colors.hotel.50");
+}
+::-webkit-scrollbar-thumb {
+  background: theme("colors.hotel.300");
+  border-radius: 999px;
+  border: 2px solid theme("colors.hotel.50");
+}
+
+@layer components {
+  /* Elevated glass surface used for cards, panels and forms */
+  .card-glass {
+    @apply relative rounded-2xl border border-hotel-200/70 bg-white/80 backdrop-blur-sm shadow-glass;
+  }
+
+  /* Gold gradient text for headings / logo */
+  .text-gold-gradient {
+    @apply bg-gold-gradient bg-clip-text text-transparent;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-accent text-white px-6 py-3 font-semibold shadow-gold transition-all duration-300 hover:-translate-y-0.5 hover:bg-accent-dark hover:shadow-gold-lg active:translate-y-0;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-hotel-300 bg-white/70 backdrop-blur-sm text-hotel-800 px-6 py-3 font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:border-hotel-400 hover:bg-white;
+  }
+
+  .btn-dark {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-hotel-900 text-hotel-50 px-6 py-3 font-semibold shadow-gold-lg transition-all duration-300 hover:-translate-y-0.5 hover:bg-hotel-800;
+  }
+
+  .input-lux {
+    @apply mt-1 w-full rounded-xl border border-hotel-200 bg-white/80 px-4 py-2.5 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-hotel-300 focus:border-hotel-400;
+  }
+
+  .label-lux {
+    @apply text-sm font-medium text-hotel-700;
+  }
+
+  .badge-gold {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-hotel-100 border border-hotel-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-hotel-600;
+  }
+
+  .divider-gold {
+    @apply h-px w-16 bg-gold-gradient rounded-full;
+  }
+
+  /* Numbered/iconic badge with an embossed, 3D coin look */
+  .coin-3d {
+    @apply relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-gradient text-hotel-900 font-serif text-xl font-semibold;
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.35),
+      inset 0 -1px 0 0 rgba(0, 45, 68, 0.08),
+      0 8px 30px -8px rgba(255, 215, 0, 0.45);
+    transform: translateZ(0);
+  }
+}

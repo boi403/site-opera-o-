@@ -1,0 +1,5 @@
+DirectoryIndex index.html
+
+AddType application/javascript .js
+AddType image/svg+xml .svg
+AddType application/manifest+json .webmanifest

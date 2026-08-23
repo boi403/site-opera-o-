@@ -1,0 +1,14 @@
+{
+  "name": "Araguaia Palace Hotel",
+  "short_name": "Araguaia Palace",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#002D44",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}
