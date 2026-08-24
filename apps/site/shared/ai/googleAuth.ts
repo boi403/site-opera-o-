@@ -4,6 +4,8 @@ export interface GoogleUserPayload {
   picture?: string;
   sub: string;
   email_verified?: boolean;
+  accessToken?: string;
+  credential?: string;
 }
 
 export function parseJwt(token: string): GoogleUserPayload | null {
@@ -99,6 +101,8 @@ export async function triggerGooglePopup(onSuccess: (user: GoogleUserPayload) =>
             picture: userInfo.picture,
             sub: userInfo.sub,
             email_verified: userInfo.email_verified,
+            accessToken: tokenResponse.access_token,
+            credential: tokenResponse.access_token,
           });
         } catch (err: any) {
           onError(err.message || 'Erro ao consultar perfil do Google.');

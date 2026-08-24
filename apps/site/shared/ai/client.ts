@@ -31,8 +31,13 @@ async function doFetch<T>(url: string, body: unknown): Promise<T> {
     } catch {
       parsed = null;
     }
-    const errorMessage = parsed?.error || parsed?.message;
-    throw new Error(typeof errorMessage === 'string' ? errorMessage : `Erro HTTP ${response.status}`);
+    if (parsed?.error || parsed?.message) {
+      throw new Error(String(parsed.error || parsed.message));
+    }
+    if (text.includes('<!DOCTYPE') || text.includes('<html') || response.status === 404) {
+      throw new Error('Serviço de autenticação temporariamente indisponível. Verifique suas credenciais.');
+    }
+    throw new Error(`Erro HTTP ${response.status}`);
   }
 
   return response.json() as Promise<T>;
@@ -46,6 +51,12 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
 
 // api/auth.php roda no MESMO hosting PHP que serve o site (kinghost), nunca
 // no ai-server.mjs — por isso é sempre same-origin, sem prefixo de AI_API_URL.
+//
+// NUNCA fabrique um sessionToken aqui no cliente caso a resposta não traga
+// 'session' — um token de sessão só é válido se foi gerado E persistido pelo
+// servidor (tabela admin_sessions). Um token inventado no navegador não bate
+// com nada no banco e não passa numa verificação real, mas ainda assim é o
+// mesmo tipo de bypass já corrigido várias vezes neste arquivo.
 async function postAdminJSON<T>(path: string, body: unknown): Promise<T> {
   return doFetch<T>(path, body);
 }

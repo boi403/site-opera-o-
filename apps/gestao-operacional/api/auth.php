@@ -54,19 +54,17 @@ function verify_password_for_user(string $password, array $user): bool
 }
 
 /**
- * Verifica a assinatura/validade de um ID token do Google Sign-In usando o
- * endpoint tokeninfo do Google (nao precisa de biblioteca extra). Retorna o
- * e-mail verificado ou null se o token for invalido, expirado, ou nao for
- * para o client_id configurado.
+ * Verifica a autenticidade de um token do Google (ID Token ou Access Token OAuth2)
+ * usando a API oficial do Google. Retorna o e-mail verificado ou null.
  */
-function verify_google_id_token(string $idToken, string $expectedClientId): ?string
+function verify_google_token_or_access(string $token, string $expectedClientId): ?string
 {
-    if ($idToken === '' || $expectedClientId === '') {
+    if ($token === '' || $expectedClientId === '') {
         return null;
     }
 
-    $url = 'https://oauth2.googleapis.com/tokeninfo?id_token=' . urlencode($idToken);
-
+    // 1. Tenta validar como ID Token (JWT)
+    $url = 'https://oauth2.googleapis.com/tokeninfo?id_token=' . urlencode($token);
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -77,23 +75,43 @@ function verify_google_id_token(string $idToken, string $expectedClientId): ?str
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($body === false || $status !== 200) {
-        return null;
+    if ($body !== false && $status === 200) {
+        $claims = json_decode((string)$body, true);
+        if (is_array($claims)) {
+            $email = strtolower(trim((string)($claims['email'] ?? '')));
+            $aud = (string)($claims['aud'] ?? '');
+            if ($email !== '' && ($claims['email_verified'] ?? 'false') === 'true' && $aud === $expectedClientId) {
+                return $email;
+            }
+        }
     }
 
-    $claims = json_decode((string)$body, true);
-    if (!is_array($claims)) {
-        return null;
+    // 2. Tenta validar como Access Token do Google OAuth2
+    $ch2 = curl_init('https://www.googleapis.com/oauth2/v3/userinfo');
+    curl_setopt_array($ch2, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/json',
+        ],
+    ]);
+    $body2 = curl_exec($ch2);
+    $status2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+    curl_close($ch2);
+
+    if ($body2 !== false && $status2 === 200) {
+        $userInfo = json_decode((string)$body2, true);
+        if (is_array($userInfo)) {
+            $email2 = strtolower(trim((string)($userInfo['email'] ?? '')));
+            if ($email2 !== '' && ($userInfo['email_verified'] ?? false)) {
+                return $email2;
+            }
+        }
     }
 
-    if (($claims['aud'] ?? '') !== $expectedClientId) {
-        return null;
-    }
-    if (($claims['email_verified'] ?? 'false') !== 'true') {
-        return null;
-    }
-    $email = strtolower(trim((string)($claims['email'] ?? '')));
-    return $email !== '' ? $email : null;
+    return null;
 }
 
 function user_payload(array $user): array
@@ -145,48 +163,65 @@ try {
         $password = (string)($input['password'] ?? '');
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
-            send_json(400, ['ok' => false, 'error' => 'Invalid credentials']);
+            send_json(400, ['ok' => false, 'error' => 'Credenciais inválidas.']);
         }
 
-        $stmt = $pdo->prepare('SELECT * FROM app_users WHERE email = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT * FROM app_users WHERE LOWER(TRIM(email)) = ? LIMIT 1');
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
         if (!$user || !(bool)$user['active'] || !verify_password_for_user($password, $user)) {
-            send_json(401, ['ok' => false, 'error' => 'Invalid credentials']);
+            send_json(401, ['ok' => false, 'error' => 'E-mail ou senha incorretos.']);
         }
 
         $pdo->prepare('UPDATE app_users SET last_login_at = NOW() WHERE id = ?')->execute([$user['id']]);
-        send_json(200, ['ok' => true, 'user' => user_payload($user)]);
+        $userPayload = user_payload($user);
+        $sessionPayload = [
+            'sessionToken' => bin2hex(random_bytes(16)),
+            'expiresAt' => date('c', strtotime('+1 day')),
+            'user' => [
+                'name' => $userPayload['name'],
+                'email' => $userPayload['email'],
+            ],
+        ];
+        send_json(200, ['ok' => true, 'user' => $userPayload, 'session' => $sessionPayload]);
     }
 
     if ($action === 'google-login') {
-        $credential = (string)($input['credential'] ?? '');
+        $credential = (string)($input['credential'] ?? $input['accessToken'] ?? $input['token'] ?? '');
         $clientId = (string)($config['google_client_id'] ?? '');
 
-        if ($credential === '' || $clientId === '') {
-            send_json(400, ['ok' => false, 'error' => 'Credencial do Google não informada.']);
-        }
-
-        $email = verify_google_id_token($credential, $clientId);
+        // NUNCA aceite input['email'] aqui como fallback — isso permitiria logar
+        // como qualquer usuário só enviando o e-mail, sem token do Google válido.
+        // Esse exato bug já foi introduzido e corrigido várias vezes neste projeto.
+        $email = verify_google_token_or_access($credential, $clientId);
         if ($email === null) {
-            send_json(401, ['ok' => false, 'error' => 'Credencial do Google inválida ou expirada.']);
+            send_json(401, ['ok' => false, 'error' => 'Não foi possível validar o token do Google.']);
         }
 
-        $stmt = $pdo->prepare('SELECT * FROM app_users WHERE email = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT * FROM app_users WHERE LOWER(TRIM(email)) = ? LIMIT 1');
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
         if (!$user) {
-            send_json(403, ['ok' => false, 'error' => 'Acesso negado: E-mail Google não cadastrado no sistema']);
+            send_json(403, ['ok' => false, 'error' => "Acesso negado: O e-mail Google ({$email}) não possui cadastro no sistema."]);
         }
 
         if (!(bool)$user['active']) {
-            send_json(403, ['ok' => false, 'error' => 'Conta desativada. Contate o administrador.']);
+            send_json(403, ['ok' => false, 'error' => 'Conta de usuário desativada. Contate o administrador.']);
         }
 
         $pdo->prepare('UPDATE app_users SET last_login_at = NOW() WHERE id = ?')->execute([$user['id']]);
-        send_json(200, ['ok' => true, 'user' => user_payload($user)]);
+        $userPayload = user_payload($user);
+        $sessionPayload = [
+            'sessionToken' => bin2hex(random_bytes(16)),
+            'expiresAt' => date('c', strtotime('+1 day')),
+            'user' => [
+                'name' => $userPayload['name'],
+                'email' => $userPayload['email'],
+            ],
+        ];
+        send_json(200, ['ok' => true, 'user' => $userPayload, 'session' => $sessionPayload]);
     }
 
     if ($action === 'request-password-reset') {

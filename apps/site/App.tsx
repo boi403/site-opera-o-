@@ -83,7 +83,7 @@ const AdminLogin: React.FC<{
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const handleProcessGoogleUser = async (googleUser: { email: string; name?: string; credential?: string }) => {
+  const handleProcessGoogleUser = async (googleUser: { email: string; name?: string; credential?: string; accessToken?: string }) => {
     setError('');
     setIsGoogleLoading(true);
 
@@ -91,9 +91,10 @@ const AdminLogin: React.FC<{
       // A sessão só é criada pelo servidor, que verifica a assinatura do
       // token do Google (audience/expiração) antes de aceitar o login.
       // Nunca confie em um e-mail decodificado no cliente para autenticar.
+      const token = googleUser.credential || googleUser.accessToken || '';
       const response = await requestAdminGoogleLogin({
         name: googleUser.name || 'Admin Google',
-        credential: googleUser.credential,
+        credential: token,
       });
 
       onLogin(response.session);
@@ -145,7 +146,13 @@ const AdminLogin: React.FC<{
     setIsGoogleLoading(true);
     triggerGooglePopup(
       (googleUser) => {
-        handleProcessGoogleUser(googleUser);
+        // googleUser já tem accessToken preenchido pelo triggerGooglePopup
+        handleProcessGoogleUser({
+          email: googleUser.email,
+          name: googleUser.name,
+          credential: googleUser.accessToken || googleUser.credential,
+          accessToken: googleUser.accessToken,
+        });
       },
       (errorMessage) => {
         setIsGoogleLoading(false);
