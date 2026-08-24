@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { User, StockItem } from '../types';
 import { MOCK_STOCK } from '../constants';
+import { subscribeInventory, saveStockItem, deleteStockItem, seedInventoryIfEmpty } from '../lib/firestoreData';
 import { useToast } from '../context/ToastContext';
 
 interface AlertRecipient {
@@ -35,13 +36,9 @@ const Inventory: React.FC<{ user: User }> = ({ user }) => {
   const { addToast } = useToast();
 
   useEffect(() => {
-    const savedItems = localStorage.getItem('araguaia_inventory_data');
-    if (savedItems) {
-      setItems(JSON.parse(savedItems));
-    } else {
-      setItems(MOCK_STOCK);
-      localStorage.setItem('araguaia_inventory_data', JSON.stringify(MOCK_STOCK));
-    }
+    seedInventoryIfEmpty(MOCK_STOCK).catch(() => {});
+    const unsubscribe = subscribeInventory(setItems);
+    return unsubscribe;
   }, []);
 
   const [recipients, setRecipients] = useState<AlertRecipient[]>(() => {
@@ -51,11 +48,6 @@ const Inventory: React.FC<{ user: User }> = ({ user }) => {
       { id: '2', name: 'Departamento de Compras', contact: 'compras@palacioaraguaia.com', type: 'EMAIL', active: true }
     ];
   });
-
-  const saveItems = (newItems: StockItem[]) => {
-    setItems(newItems);
-    localStorage.setItem('araguaia_inventory_data', JSON.stringify(newItems));
-  };
 
   const saveRecipients = (newRecipients: AlertRecipient[]) => {
     setRecipients(newRecipients);
@@ -98,7 +90,7 @@ const Inventory: React.FC<{ user: User }> = ({ user }) => {
     return itemsInReport.reduce((acc, item) => acc + item.estimatedCost, 0);
   }, [itemsInReport]);
 
-  const handleSaveItem = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveItem = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const itemData: StockItem = {
@@ -112,8 +104,7 @@ const Inventory: React.FC<{ user: User }> = ({ user }) => {
       location: formData.get('location') as string,
       photo: (formData.get('photo') as string) || `https://picsum.photos/seed/${formData.get('name')}/200`,
     };
-    const newItems = editingItem ? items.map(i => i.id === editingItem.id ? itemData : i) : [...items, itemData];
-    saveItems(newItems);
+    await saveStockItem(itemData);
     setShowItemModal(false);
     setEditingItem(null);
     addToast(editingItem ? "Item atualizado com sucesso." : "Novo item cadastrado no inventário.", 'SUCCESS');
@@ -305,7 +296,7 @@ const Inventory: React.FC<{ user: User }> = ({ user }) => {
                         </div>
                         <div className="flex gap-2">
                            <button onClick={() => { setEditingItem(item); setShowItemModal(true); }} className="flex-1 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all">Editar</button>
-                           <button onClick={() => { if(confirm('Remover item?')) { saveItems(items.filter(i => i.id !== item.id)); addToast("Item removido com sucesso.", "INFO"); } }} className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all border border-red-100"><Trash2 size={18} /></button>
+                           <button onClick={() => { if(confirm('Remover item?')) { deleteStockItem(item.id); addToast("Item removido com sucesso.", "INFO"); } }} className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all border border-red-100"><Trash2 size={18} /></button>
                         </div>
                       </div>
                     </div>

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { User, Room, RoomStatus, RoomHistory } from '../types';
 import { MOCK_ROOMS, CHECKLIST_ITEMS } from '../constants';
-import { DatabaseService } from '../database';
+import { subscribeRooms, saveRoom, seedRoomsIfEmpty } from '../lib/firestoreData';
 import { useToast } from '../context/ToastContext';
 
 const Housekeeping: React.FC<{ user: User }> = ({ user }) => {
@@ -21,12 +21,17 @@ const Housekeeping: React.FC<{ user: User }> = ({ user }) => {
   const { addToast } = useToast();
 
   useEffect(() => {
-    const roomsData = DatabaseService.getRooms(MOCK_ROOMS);
-    setRooms(roomsData);
-    if (roomsData.length > 0) {
-      const prioritizedRoom = roomsData.find((r: Room) => r.status === RoomStatus.DIRTY || r.status === RoomStatus.CLEANING);
-      setSelectedRoomNumber(prioritizedRoom ? prioritizedRoom.number : roomsData[0].number);
-    }
+    seedRoomsIfEmpty(MOCK_ROOMS).catch(() => {});
+    const unsubscribe = subscribeRooms((roomsData) => {
+      setRooms(roomsData);
+      setSelectedRoomNumber((current) => {
+        if (current && roomsData.some((r) => r.number === current)) return current;
+        if (roomsData.length === 0) return current;
+        const prioritizedRoom = roomsData.find((r: Room) => r.status === RoomStatus.DIRTY || r.status === RoomStatus.CLEANING);
+        return prioritizedRoom ? prioritizedRoom.number : roomsData[0].number;
+      });
+    });
+    return unsubscribe;
   }, []);
 
   const handleToggle = (item: string) => {
@@ -68,22 +73,20 @@ const Housekeeping: React.FC<{ user: User }> = ({ user }) => {
         type: 'CLEANING'
       };
 
-      const updatedRooms = rooms.map(room => {
-        if (room.number === selectedRoomNumber) {
-          return {
-            ...room,
-            status: RoomStatus.INSPECTION, 
-            lastCleaning: now.toISOString(),
-            responsible: user.name,
-            history: [newHistoryEntry, ...(room.history || [])]
-          };
-        }
-        return room;
-      });
+      const targetRoom = rooms.find(room => room.number === selectedRoomNumber);
 
-      setRooms(updatedRooms);
-      await DatabaseService.saveRooms(updatedRooms);
-      
+      if (targetRoom) {
+        const updatedRoom: Room = {
+          ...targetRoom,
+          status: RoomStatus.INSPECTION,
+          lastCleaning: now.toISOString(),
+          responsible: user.name,
+          history: [newHistoryEntry, ...(targetRoom.history || [])]
+        };
+        setRooms(rooms.map(room => room.number === selectedRoomNumber ? updatedRoom : room));
+        await saveRoom(updatedRoom);
+      }
+
       // Resetar estado local
       setChecklist(CHECKLIST_ITEMS.reduce((acc, item) => ({ ...acc, [item]: false }), {}));
       setIsFinishing(false);

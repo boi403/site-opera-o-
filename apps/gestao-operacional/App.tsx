@@ -92,6 +92,7 @@ const AdSenseWidget: React.FC = () => {
 };
 
 import { signInWithEmailPassword, signInWithGoogle, setupPassword, sendPasswordReset, getUserProfile, getAllUserProfiles, watchAuthState, signOutUser } from './lib/authService';
+import { subscribeRooms, subscribeInventory, seedRoomsIfEmpty, seedInventoryIfEmpty } from './lib/firestoreData';
 
 const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 0 24 24">
@@ -333,6 +334,22 @@ const App: React.FC = () => {
 
     return () => unsubscribe();
   }, []);
+
+  // Mantem quartos/estoque sincronizados em segundo plano assim que loga,
+  // mesmo em telas que so leem (Dashboard, Relatorios etc.) e nunca abrem
+  // Quartos/Estoque diretamente — essas telas leem do espelho local que
+  // essas assinaturas mantem atualizado.
+  useEffect(() => {
+    if (!user) return;
+    seedRoomsIfEmpty(MOCK_ROOMS).catch(() => {});
+    seedInventoryIfEmpty(MOCK_STOCK).catch(() => {});
+    const unsubRooms = subscribeRooms(() => {});
+    const unsubInventory = subscribeInventory(() => {});
+    return () => {
+      unsubRooms();
+      unsubInventory();
+    };
+  }, [user?.id]);
 
   const handleUpdateConfig = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

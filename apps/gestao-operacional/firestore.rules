@@ -6,10 +6,28 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.token.email));
+    }
+
+    // Exige nao so estar logado, mas ter um perfil ativo cadastrado por um
+    // admin. Sem isso, uma conta criada direto pela API do Firebase (sem
+    // nunca passar pelo app) ficaria "logada" pra sempre sem nenhum
+    // perfil, e isSignedIn() sozinho já liberaria dados do hotel.
+    function isActiveUser() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.token.email)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'ADMIN';
+        userDoc().data.active == true;
+    }
+
+    function isAdmin() {
+      return isActiveUser() && userDoc().data.role == 'ADMIN';
+    }
+
+    // Colaborador ativo com o modulo liberado no proprio cadastro (mesma
+    // lista de permissoes que já controla o menu do app), ou admin.
+    function hasModule(module) {
+      return isAdmin() || (isActiveUser() && module in userDoc().data.permissions);
     }
 
     match /users/{email} {
@@ -26,6 +44,31 @@ service cloud.firestore {
       );
 
       allow update, delete: if isAdmin();
+    }
+
+    // Dados operacionais (quartos, estoque, manutencao): exige perfil ativo
+    // E o modulo correspondente liberado (mesma lista de permissoes que já
+    // controla o menu do app) — nao só estar logado. Exclusão sempre restrita
+    // a admin, pra ninguém apagar histórico/estoque/manutenção por engano
+    // ou má-fé.
+    match /rooms/{roomId} {
+      allow read, create, update: if hasModule('rooms');
+      allow delete: if isAdmin();
+    }
+
+    match /inventory/{itemId} {
+      allow read, create, update: if hasModule('inventory');
+      allow delete: if isAdmin();
+    }
+
+    match /manutencao_ambientes/{ambienteId} {
+      allow read, create, update: if hasModule('maintenance');
+      allow delete: if isAdmin();
+    }
+
+    match /manutencao_registros/{registroId} {
+      allow read, create, update: if hasModule('maintenance');
+      allow delete: if isAdmin();
     }
   }
 }

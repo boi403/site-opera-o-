@@ -1,4 +1,15 @@
 import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import {
   Ambiente,
   AmbienteTipo,
   ManutencaoCategoria,
@@ -8,8 +19,6 @@ import {
 } from '../types';
 
 const STORAGE_KEYS = {
-  CUSTOM_AMBIENTES: 'araguaia_manutencao_ambientes_custom',
-  REGISTROS: 'araguaia_manutencao_registros',
   DAILY_RATES: 'araguaia_room_daily_rates',
 };
 
@@ -23,26 +32,37 @@ const DEFAULT_DAILY_RATES: Record<string, number> = {
 };
 
 // --- Ambientes ---
+// Quartos são derivados ao vivo de Room[] (já sincronizado via Firestore em
+// firestoreData.ts). Áreas comuns (cadastro manual) ficam na coleção
+// manutencao_ambientes, com sincronização em tempo real própria.
 
-export function getCustomAmbientes(): Ambiente[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.CUSTOM_AMBIENTES);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+export function ambienteIdParaQuarto(roomId: number): string {
+  return `quarto_${roomId}`;
 }
 
-export function saveCustomAmbientes(ambientes: Ambiente[]) {
-  localStorage.setItem(STORAGE_KEYS.CUSTOM_AMBIENTES, JSON.stringify(ambientes));
+/** Deriva os ambientes do tipo "quarto" a partir da lista de quartos (não precisa de Firestore próprio). */
+export function quartoAmbientes(rooms: Room[]): Ambiente[] {
+  return rooms.map((r) => ({
+    id: ambienteIdParaQuarto(r.id),
+    tipo: 'quarto',
+    identificacao: r.number,
+    andar: r.floor,
+    quartoId: r.id,
+  }));
 }
 
-export function addCustomAmbiente(input: {
+export function subscribeCustomAmbientes(onChange: (ambientes: Ambiente[]) => void): () => void {
+  return onSnapshot(collection(db, 'manutencao_ambientes'), (snap) => {
+    onChange(snap.docs.map((d) => d.data() as Ambiente));
+  });
+}
+
+export async function addCustomAmbiente(input: {
   tipo: Exclude<AmbienteTipo, 'quarto'>;
   identificacao: string;
   andar: number;
   referencia?: string;
-}): Ambiente {
+}): Promise<Ambiente> {
   const novo: Ambiente = {
     id: `custom_${Math.random().toString(36).slice(2, 10)}`,
     tipo: input.tipo,
@@ -51,51 +71,24 @@ export function addCustomAmbiente(input: {
     referencia: input.referencia,
     custom: true,
   };
-  const atuais = getCustomAmbientes();
-  saveCustomAmbientes([...atuais, novo]);
+  await setDoc(doc(db, 'manutencao_ambientes', novo.id), novo);
   return novo;
 }
 
-export function removeCustomAmbiente(id: string) {
-  saveCustomAmbientes(getCustomAmbientes().filter((a) => a.id !== id));
-}
-
-export function ambienteIdParaQuarto(roomId: number): string {
-  return `quarto_${roomId}`;
-}
-
-/** Unifica quartos (derivados de Room[]) e áreas comuns (cadastro manual) num só registro de ambientes. */
-export function getAmbientes(rooms: Room[]): Ambiente[] {
-  const dosQuartos: Ambiente[] = rooms.map((r) => ({
-    id: ambienteIdParaQuarto(r.id),
-    tipo: 'quarto',
-    identificacao: r.number,
-    andar: r.floor,
-    quartoId: r.id,
-  }));
-  return [...dosQuartos, ...getCustomAmbientes()];
-}
-
-export function getAmbienteById(rooms: Room[], ambienteId: string): Ambiente | undefined {
-  return getAmbientes(rooms).find((a) => a.id === ambienteId);
+export async function removeCustomAmbiente(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'manutencao_ambientes', id));
 }
 
 // --- Registros de manutenção ---
 
-export function getRegistros(): ManutencaoRegistro[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.REGISTROS);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+export function subscribeRegistros(onChange: (registros: ManutencaoRegistro[]) => void): () => void {
+  const q = query(collection(db, 'manutencao_registros'), orderBy('dataHora', 'desc'));
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => d.data() as ManutencaoRegistro));
+  });
 }
 
-export function saveRegistros(registros: ManutencaoRegistro[]) {
-  localStorage.setItem(STORAGE_KEYS.REGISTROS, JSON.stringify(registros));
-}
-
-export function addRegistro(input: {
+export async function addRegistro(input: {
   ambienteId: string;
   funcionarioId: string;
   funcionarioNome: string;
@@ -104,7 +97,7 @@ export function addRegistro(input: {
   fotosAntes: string[];
   prioridade: ManutencaoRegistro['prioridade'];
   ambienteIndisponivel: boolean;
-}): ManutencaoRegistro {
+}): Promise<ManutencaoRegistro> {
   const agora = new Date().toISOString();
   const novo: ManutencaoRegistro = {
     id: `mr_${Math.random().toString(36).slice(2, 10)}`,
@@ -121,17 +114,15 @@ export function addRegistro(input: {
     dataInicioIndisponivel: input.ambienteIndisponivel ? agora : undefined,
     materiais: [],
   };
-  const atuais = getRegistros();
-  saveRegistros([novo, ...atuais]);
+  await setDoc(doc(db, 'manutencao_registros', novo.id), novo);
   return novo;
 }
 
-export function updateRegistroStatus(id: string, status: ManutencaoRegistro['status']) {
-  const registros = getRegistros().map((r) => (r.id === id ? { ...r, status } : r));
-  saveRegistros(registros);
+export async function updateRegistroStatus(id: string, status: ManutencaoRegistro['status']): Promise<void> {
+  await updateDoc(doc(db, 'manutencao_registros', id), { status });
 }
 
-export function resolverRegistro(
+export async function resolverRegistro(
   id: string,
   input: {
     fotosDepois: string[];
@@ -141,32 +132,22 @@ export function resolverRegistro(
     resolvidoPor: string;
     liberarAmbiente: boolean;
   },
-) {
+): Promise<void> {
   const agora = new Date().toISOString();
-  const registros = getRegistros().map((r) => {
-    if (r.id !== id) return r;
-    return {
-      ...r,
-      status: 'resolvido' as const,
-      fotosDepois: input.fotosDepois,
-      materiais: input.materiais,
-      custoMaoDeObra: input.custoMaoDeObra,
-      observacoesResolucao: input.observacoesResolucao,
-      resolvidoPor: input.resolvidoPor,
-      resolvidoEm: agora,
-      dataFimIndisponivel: input.liberarAmbiente ? agora : r.dataFimIndisponivel,
-    };
-  });
-  saveRegistros(registros);
+  const patch: Record<string, unknown> = {
+    status: 'resolvido',
+    fotosDepois: input.fotosDepois,
+    materiais: input.materiais,
+    resolvidoPor: input.resolvidoPor,
+    resolvidoEm: agora,
+  };
+  if (input.custoMaoDeObra !== undefined) patch.custoMaoDeObra = input.custoMaoDeObra;
+  if (input.observacoesResolucao !== undefined) patch.observacoesResolucao = input.observacoesResolucao;
+  if (input.liberarAmbiente) patch.dataFimIndisponivel = agora;
+  await updateDoc(doc(db, 'manutencao_registros', id), patch);
 }
 
-export function getRegistrosPorAmbiente(ambienteId: string): ManutencaoRegistro[] {
-  return getRegistros()
-    .filter((r) => r.ambienteId === ambienteId)
-    .sort((a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime());
-}
-
-// --- Custos e prejuízo ---
+// --- Custos e prejuízo (config local — não é dado colaborativo do dia a dia) ---
 
 export function getDailyRates(): Record<string, number> {
   try {

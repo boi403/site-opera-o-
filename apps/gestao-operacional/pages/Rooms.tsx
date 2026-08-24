@@ -8,9 +8,10 @@ import {
 } from 'lucide-react';
 import { Room, RoomStatus, User, UserRole, RoomHistory } from '../types';
 import { MOCK_ROOMS } from '../constants';
-import { DatabaseService } from '../database';
 import { useToast } from '../context/ToastContext';
-import { ambienteIdParaQuarto, getRegistros, getAlertasRecorrencia, ambienteTemPendencia, ambienteTemAlerta } from '../lib/manutencao';
+import { ambienteIdParaQuarto, getAlertasRecorrencia, ambienteTemPendencia, ambienteTemAlerta, subscribeRegistros } from '../lib/manutencao';
+import { subscribeRooms, saveRoom, seedRoomsIfEmpty } from '../lib/firestoreData';
+import type { ManutencaoRegistro } from '../types';
 
 const Rooms: React.FC<{ user: User }> = ({ user }) => {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -20,14 +21,20 @@ const Rooms: React.FC<{ user: User }> = ({ user }) => {
   const [viewType, setViewType] = useState<'GRID' | 'LIST'>('GRID');
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [historyTypeFilter, setHistoryTypeFilter] = useState<RoomHistory['type'] | 'ALL'>('ALL');
+  const [registros, setRegistros] = useState<ManutencaoRegistro[]>([]);
   const { addToast } = useToast();
 
   useEffect(() => {
-    setRooms(DatabaseService.getRooms(MOCK_ROOMS));
+    seedRoomsIfEmpty(MOCK_ROOMS).catch(() => {});
+    const unsubscribe = subscribeRooms(setRooms);
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    return subscribeRegistros(setRegistros);
   }, []);
 
   const manutencaoAlerta = useMemo(() => {
-    const registros = getRegistros();
     const alertas = getAlertasRecorrencia(registros);
     const porQuarto = new Map<number, boolean>();
     rooms.forEach((r) => {
@@ -35,7 +42,7 @@ const Rooms: React.FC<{ user: User }> = ({ user }) => {
       porQuarto.set(r.id, ambienteTemPendencia(registros, ambienteId) || ambienteTemAlerta(alertas, ambienteId));
     });
     return porQuarto;
-  }, [rooms]);
+  }, [rooms, registros]);
 
   const updateRoomStatus = async (roomId: number, newStatus: RoomStatus) => {
     if (newStatus === RoomStatus.RELEASED && user.role !== UserRole.ADMIN && user.role !== UserRole.GOVERNANCE) {
@@ -69,9 +76,10 @@ const Rooms: React.FC<{ user: User }> = ({ user }) => {
     });
 
     setRooms(updatedRooms);
-    await DatabaseService.saveRooms(updatedRooms);
+    const changedRoom = updatedRooms.find(r => r.id === roomId);
+    if (changedRoom) await saveRoom(changedRoom);
     if (selectedRoom?.id === roomId) {
-      setSelectedRoom(updatedRooms.find(r => r.id === roomId) || null);
+      setSelectedRoom(changedRoom || null);
     }
     
     // Feedback visual

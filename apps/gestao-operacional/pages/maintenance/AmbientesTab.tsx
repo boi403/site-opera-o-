@@ -9,10 +9,10 @@ import {
   ManutencaoMaterial, ManutencaoPrioridadeAmbiente, MANUTENCAO_CATEGORIA_LABELS,
 } from '../../types';
 import { MOCK_ROOMS } from '../../constants';
-import { DatabaseService } from '../../database';
 import { useToast } from '../../context/ToastContext';
+import { subscribeRooms, seedRoomsIfEmpty } from '../../lib/firestoreData';
 import {
-  getAmbientes, getRegistros, addRegistro, resolverRegistro, getAlertasRecorrencia,
+  quartoAmbientes, subscribeCustomAmbientes, subscribeRegistros, addRegistro, resolverRegistro, getAlertasRecorrencia,
   ambienteTemPendencia, ambienteTemAlerta, getRelatorioAmbiente, custoMateriais,
   diasIndisponivel, prejuizoTotal, comprimirImagem, addCustomAmbiente, isRecorrente,
   AlertaAmbiente,
@@ -51,9 +51,8 @@ function formatData(iso: string): string {
 
 const AmbientesTab: React.FC<{ user: User }> = ({ user }) => {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [ambientes, setAmbientes] = useState<Ambiente[]>([]);
+  const [customAmbientes, setCustomAmbientes] = useState<Ambiente[]>([]);
   const [registros, setRegistros] = useState<ManutencaoRegistro[]>([]);
-  const [alertas, setAlertas] = useState<AlertaAmbiente[]>([]);
 
   const [tipoFilter, setTipoFilter] = useState<'ALL' | AmbienteTipo>('ALL');
   const [andarFilter, setAndarFilter] = useState<'ALL' | number>('ALL');
@@ -67,16 +66,22 @@ const AmbientesTab: React.FC<{ user: User }> = ({ user }) => {
 
   const { addToast } = useToast();
 
-  const reload = () => {
-    const r = DatabaseService.getRooms(MOCK_ROOMS);
-    const regs = getRegistros();
-    setRooms(r);
-    setAmbientes(getAmbientes(r));
-    setRegistros(regs);
-    setAlertas(getAlertasRecorrencia(regs));
-  };
+  // Assinaturas em tempo real — qualquer mudanca feita por outro colaborador
+  // (em outro celular) aparece aqui sozinha, sem precisar recarregar a pagina.
+  useEffect(() => {
+    seedRoomsIfEmpty(MOCK_ROOMS).catch(() => {});
+    const unsubRooms = subscribeRooms(setRooms);
+    const unsubAmbientes = subscribeCustomAmbientes(setCustomAmbientes);
+    const unsubRegistros = subscribeRegistros(setRegistros);
+    return () => {
+      unsubRooms();
+      unsubAmbientes();
+      unsubRegistros();
+    };
+  }, []);
 
-  useEffect(reload, []);
+  const ambientes = useMemo(() => [...quartoAmbientes(rooms), ...customAmbientes], [rooms, customAmbientes]);
+  const alertas = useMemo(() => getAlertasRecorrencia(registros), [registros]);
 
   const andares = useMemo(() => {
     const unicos: number[] = Array.from(new Set(ambientes.map(a => a.andar)));
@@ -99,19 +104,16 @@ const AmbientesTab: React.FC<{ user: User }> = ({ user }) => {
   );
 
   const handleNovoRegistroSalvo = () => {
-    reload();
     setShowNovoRegistro(false);
     addToast('Manutenção registrada. Ambiente marcado como aberto.', 'SUCCESS');
   };
 
   const handleResolvido = () => {
-    reload();
     setResolvendoRegistro(null);
     addToast('Manutenção concluída e custos registrados.', 'SUCCESS');
   };
 
   const handleNovaArea = (ambiente: Ambiente) => {
-    reload();
     setShowNovaArea(false);
     addToast(`Ambiente "${ambiente.identificacao}" cadastrado.`, 'SUCCESS');
   };
@@ -500,20 +502,27 @@ const NovoRegistroModal: React.FC<{ ambiente: Ambiente; user: User; onClose: () 
 
   const ditado = useDitado((texto) => setDescricao((atual) => (atual ? `${atual} ${texto}` : texto)));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [salvando, setSalvando] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!descricao.trim()) return;
-    addRegistro({
-      ambienteId: ambiente.id,
-      funcionarioId: user.id,
-      funcionarioNome: user.name,
-      categoria,
-      descricao: descricao.trim(),
-      fotosAntes,
-      prioridade,
-      ambienteIndisponivel: indisponivel,
-    });
-    onSaved();
+    if (!descricao.trim() || salvando) return;
+    setSalvando(true);
+    try {
+      await addRegistro({
+        ambienteId: ambiente.id,
+        funcionarioId: user.id,
+        funcionarioNome: user.name,
+        categoria,
+        descricao: descricao.trim(),
+        fotosAntes,
+        prioridade,
+        ambienteIndisponivel: indisponivel,
+      });
+      onSaved();
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -574,7 +583,7 @@ const NovoRegistroModal: React.FC<{ ambiente: Ambiente; user: User; onClose: () 
 
           <div className="pt-4 flex gap-4">
             <button type="button" onClick={onClose} className="flex-1 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest">Cancelar</button>
-            <button type="submit" className="flex-[2] px-6 py-4 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all">Abrir manutenção</button>
+            <button type="submit" disabled={salvando} className="flex-[2] px-6 py-4 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all disabled:opacity-60">{salvando ? 'Salvando...' : 'Abrir manutenção'}</button>
           </div>
         </form>
       </div>
@@ -602,18 +611,25 @@ const ResolverRegistroModal: React.FC<{ registro: ManutencaoRegistro; user: User
   const removeMaterial = (id: string) => setMateriais(materiais.filter(m => m.id !== id));
 
   const totalMateriais = materiais.reduce((acc, m) => acc + m.quantidade * m.custoUnitario, 0);
+  const [salvando, setSalvando] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    resolverRegistro(registro.id, {
-      fotosDepois,
-      materiais,
-      custoMaoDeObra: custoMaoDeObra || undefined,
-      observacoesResolucao: observacoes.trim() || undefined,
-      resolvidoPor: user.name,
-      liberarAmbiente,
-    });
-    onSaved();
+    if (salvando) return;
+    setSalvando(true);
+    try {
+      await resolverRegistro(registro.id, {
+        fotosDepois,
+        materiais,
+        custoMaoDeObra: custoMaoDeObra || undefined,
+        observacoesResolucao: observacoes.trim() || undefined,
+        resolvidoPor: user.name,
+        liberarAmbiente,
+      });
+      onSaved();
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -671,7 +687,7 @@ const ResolverRegistroModal: React.FC<{ registro: ManutencaoRegistro; user: User
 
           <div className="pt-4 flex gap-4">
             <button type="button" onClick={onClose} className="flex-1 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest">Cancelar</button>
-            <button type="submit" className="flex-[2] px-6 py-4 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all">Finalizar manutenção</button>
+            <button type="submit" disabled={salvando} className="flex-[2] px-6 py-4 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all disabled:opacity-60">{salvando ? 'Salvando...' : 'Finalizar manutenção'}</button>
           </div>
         </form>
       </div>
@@ -682,16 +698,24 @@ const ResolverRegistroModal: React.FC<{ registro: ManutencaoRegistro; user: User
 // --- Modal: nova área comum ---
 
 const NovaAreaComumModal: React.FC<{ onClose: () => void; onSaved: (ambiente: Ambiente) => void }> = ({ onClose, onSaved }) => {
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const [salvando, setSalvando] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (salvando) return;
+    setSalvando(true);
     const formData = new FormData(e.currentTarget);
-    const novo = addCustomAmbiente({
-      tipo: formData.get('tipo') as Exclude<AmbienteTipo, 'quarto'>,
-      identificacao: formData.get('identificacao') as string,
-      andar: Number(formData.get('andar')),
-      referencia: (formData.get('referencia') as string) || undefined,
-    });
-    onSaved(novo);
+    try {
+      const novo = await addCustomAmbiente({
+        tipo: formData.get('tipo') as Exclude<AmbienteTipo, 'quarto'>,
+        identificacao: formData.get('identificacao') as string,
+        andar: Number(formData.get('andar')),
+        referencia: (formData.get('referencia') as string) || undefined,
+      });
+      onSaved(novo);
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -728,7 +752,7 @@ const NovaAreaComumModal: React.FC<{ onClose: () => void; onSaved: (ambiente: Am
           </div>
           <div className="pt-4 flex gap-4">
             <button type="button" onClick={onClose} className="flex-1 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest">Cancelar</button>
-            <button type="submit" className="flex-[2] px-6 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all">Cadastrar ambiente</button>
+            <button type="submit" disabled={salvando} className="flex-[2] px-6 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all disabled:opacity-60">{salvando ? 'Salvando...' : 'Cadastrar ambiente'}</button>
           </div>
         </form>
       </div>

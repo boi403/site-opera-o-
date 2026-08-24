@@ -6,25 +6,39 @@ import {
   RefreshCcw, CalendarDays, Zap, Activity, ShieldCheck, ChevronRight, Settings,
   RotateCcw, Info, Check, Play, ListTodo, Archive, ArrowRight, MapPin
 } from 'lucide-react';
-import { User, MaintenanceTask, UserRole, RoomStatus, RoomHistory, RecurringMaintenance, MaintenanceFrequency, Room } from '../types';
+import { User, MaintenanceTask, UserRole, RoomStatus, RoomHistory, RecurringMaintenance, MaintenanceFrequency, Room, ManutencaoRegistro } from '../types';
 import { MOCK_MAINTENANCE, MOCK_ROOMS } from '../constants';
 import { useToast } from '../context/ToastContext';
 import { DatabaseService } from '../database';
-import { getAmbientes, getRegistros, getAlertasRecorrencia, ambienteTemPendencia } from '../lib/manutencao';
+import { quartoAmbientes, subscribeCustomAmbientes, subscribeRegistros, getAlertasRecorrencia, ambienteTemPendencia } from '../lib/manutencao';
+import { subscribeRooms, saveRoom, getRoomsOnce } from '../lib/firestoreData';
 import AmbientesTab from './maintenance/AmbientesTab';
 
 const Maintenance: React.FC<{ user: User }> = ({ user }) => {
   const isAdmin = user.role === UserRole.ADMIN;
   const [activeTab, setActiveTab] = useState<'TASKS' | 'RECURRING' | 'AMBIENTES'>('TASKS');
   const [ambientesAlertCount, setAmbientesAlertCount] = useState(0);
+  const [alertRooms, setAlertRooms] = useState<Room[]>([]);
+  const [alertCustomAmbientes, setAlertCustomAmbientes] = useState<ReturnType<typeof quartoAmbientes>>([]);
+  const [alertRegistros, setAlertRegistros] = useState<ManutencaoRegistro[]>([]);
 
   useEffect(() => {
-    const rooms = DatabaseService.getRooms(MOCK_ROOMS);
-    const registros = getRegistros();
-    const alertas = getAlertasRecorrencia(registros);
-    const pendentesGraves = rooms.length ? getAmbientes(rooms).filter(a => ambienteTemPendencia(registros, a.id)).length : 0;
+    const unsubRooms = subscribeRooms(setAlertRooms);
+    const unsubAmbientes = subscribeCustomAmbientes(setAlertCustomAmbientes);
+    const unsubRegistros = subscribeRegistros(setAlertRegistros);
+    return () => {
+      unsubRooms();
+      unsubAmbientes();
+      unsubRegistros();
+    };
+  }, []);
+
+  useEffect(() => {
+    const alertas = getAlertasRecorrencia(alertRegistros);
+    const ambientes = [...quartoAmbientes(alertRooms), ...alertCustomAmbientes];
+    const pendentesGraves = ambientes.filter(a => ambienteTemPendencia(alertRegistros, a.id)).length;
     setAmbientesAlertCount(alertas.length + pendentesGraves);
-  }, [activeTab]);
+  }, [alertRooms, alertCustomAmbientes, alertRegistros]);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [recurringSchedules, setRecurringSchedules] = useState<RecurringMaintenance[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -78,41 +92,34 @@ const Maintenance: React.FC<{ user: User }> = ({ user }) => {
     localStorage.setItem('araguaia_maintenance_recurring', JSON.stringify(newRecurring));
   };
 
-  const updateTaskStatus = (taskId: string, newStatus: MaintenanceTask['status']) => {
-    const updatedTasks = tasks.map(t => {
-        if (t.id === taskId) {
-            // Se estiver finalizando, registra no histórico do quarto
-            if (newStatus === 'COMPLETED') {
-                const now = new Date();
-                const logEntry: RoomHistory = {
-                    date: `${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
-                    action: `🛠️ MANUTENÇÃO CONCLUÍDA: ${t.type}\nDescrição: ${t.description}\nCusto Registrado: R$ ${t.cost.toFixed(2)}`,
-                    user: user.name,
-                    type: 'MAINTENANCE'
-                };
+  const updateTaskStatus = async (taskId: string, newStatus: MaintenanceTask['status']) => {
+    const task = tasks.find(t => t.id === taskId);
 
-                // Atualizar o histórico do quarto no localStorage
-                const savedRooms = localStorage.getItem('araguaia_rooms_data');
-                if (savedRooms) {
-                    const rooms: Room[] = JSON.parse(savedRooms);
-                    const updatedRooms = rooms.map(r => {
-                        if (r.number === t.roomId) {
-                            return {
-                                ...r,
-                                status: RoomStatus.DIRTY, // Após manutenção, precisa limpar
-                                lastMaintenance: now.toLocaleDateString('pt-BR'),
-                                history: [logEntry, ...(r.history || [])]
-                            };
-                        }
-                        return r;
-                    });
-                    localStorage.setItem('araguaia_rooms_data', JSON.stringify(updatedRooms));
-                }
-            }
-            return { ...t, status: newStatus };
+    // Se estiver finalizando, registra no histórico do quarto (via Firestore,
+    // igual ao resto do app — nunca escreve direto no localStorage, senão a
+    // proxima atualizacao em tempo real sobrescreve essa mudanca).
+    if (task && newStatus === 'COMPLETED') {
+        const now = new Date();
+        const logEntry: RoomHistory = {
+            date: `${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+            action: `🛠️ MANUTENÇÃO CONCLUÍDA: ${task.type}\nDescrição: ${task.description}\nCusto Registrado: R$ ${task.cost.toFixed(2)}`,
+            user: user.name,
+            type: 'MAINTENANCE'
+        };
+
+        const currentRooms = await getRoomsOnce();
+        const targetRoom = currentRooms.find(r => r.number === task.roomId);
+        if (targetRoom) {
+            await saveRoom({
+                ...targetRoom,
+                status: RoomStatus.DIRTY, // Após manutenção, precisa limpar
+                lastMaintenance: now.toLocaleDateString('pt-BR'),
+                history: [logEntry, ...(targetRoom.history || [])]
+            });
         }
-        return t;
-    });
+    }
+
+    const updatedTasks = tasks.map(t => (t.id === taskId ? { ...t, status: newStatus } : t));
     saveTasks(updatedTasks);
     setSelectedTask(null);
     if (newStatus === 'COMPLETED') {

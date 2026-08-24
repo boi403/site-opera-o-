@@ -15,6 +15,10 @@ build-test/
 .env.*
 !.env.example
 
+# Config PHP real (senha de banco, etc.) — nunca commitar. So o .example vai.
+config.php
+!config.example.php
+
 # Logs
 *.log
 npm-debug.log*
@@ -25,6 +29,10 @@ npm-debug.log*
 # Snapshots de builds antigos pra upload manual no kinghost — não é fonte,
 # e alguns têm config.php/senhas de builds passados.
 deploy-archive/
+SUBIR_KING/
+
+# Estado interno do Claude Code (locks de sessão etc.) — não é do projeto.
+.claude/
 
 # Scaffolding de agente de IA de terceiros, não faz parte do projeto
 .agent/
