@@ -63,15 +63,35 @@ const Header: React.FC<HeaderProps> = ({ onNavigate, activeTab }) => {
               </a>
             ))}
             <a
-              href="https://lavanderia.araguaiapalacehotel.com.br"
+              href="#serviços"
               className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-[#E31B23] transition-colors whitespace-nowrap"
+              onClick={(e) => {
+                if (activeTab === 'professional') {
+                  e.preventDefault();
+                  onNavigate('home');
+                  setTimeout(() => {
+                    const el = document.getElementById('serviços');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                }
+              }}
             >
               <WashingMachine className="w-4 h-4" />
               Lavanderia
             </a>
             <a
-              href="https://lavanderia.araguaiapalacehotel.com.br/restaurante"
+              href="#serviços"
               className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-[#E31B23] transition-colors whitespace-nowrap"
+              onClick={(e) => {
+                if (activeTab === 'professional') {
+                  e.preventDefault();
+                  onNavigate('home');
+                  setTimeout(() => {
+                    const el = document.getElementById('serviços');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                }
+              }}
             >
               <UtensilsCrossed className="w-4 h-4" />
               Restaurante
@@ -91,10 +111,38 @@ const Header: React.FC<HeaderProps> = ({ onNavigate, activeTab }) => {
 
           <div className="md:hidden">
             <div className="flex items-center gap-1">
-              <a href="https://lavanderia.araguaiapalacehotel.com.br" className="p-2" aria-label="Lavanderia">
+              <a 
+                href="#serviços" 
+                className="p-2" 
+                aria-label="Lavanderia"
+                onClick={(e) => {
+                  if (activeTab === 'professional') {
+                    e.preventDefault();
+                    onNavigate('home');
+                    setTimeout(() => {
+                      const el = document.getElementById('serviços');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }
+                }}
+              >
                 <WashingMachine className="w-6 h-6 text-slate-500" />
               </a>
-              <a href="https://lavanderia.araguaiapalacehotel.com.br/restaurante" className="p-2" aria-label="Restaurante">
+              <a 
+                href="#serviços" 
+                className="p-2" 
+                aria-label="Restaurante"
+                onClick={(e) => {
+                  if (activeTab === 'professional') {
+                    e.preventDefault();
+                    onNavigate('home');
+                    setTimeout(() => {
+                      const el = document.getElementById('serviços');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }
+                }}
+              >
                 <UtensilsCrossed className="w-6 h-6 text-slate-500" />
               </a>
               <button onClick={() => onNavigate('professional')} className="p-2">

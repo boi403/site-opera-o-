@@ -25,18 +25,13 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text();
-    if (!text) {
-      throw new Error(`Erro HTTP ${response.status}`);
-    }
-
     let parsed: any = null;
     try {
       parsed = JSON.parse(text);
     } catch {
       parsed = null;
     }
-
-    const errorMessage = parsed?.error || parsed?.message || text;
+    const errorMessage = parsed?.error || parsed?.message;
     throw new Error(typeof errorMessage === 'string' ? errorMessage : `Erro HTTP ${response.status}`);
   }
 
@@ -78,6 +73,9 @@ export async function requestAIAnalytics(payload: { events: unknown[]; snapshot?
   }>('/api/analytics', payload);
 }
 
+// Login admin: SEMPRE validado no servidor (ai-server.mjs). Nunca adicione
+// um fallback client-side que aceite e-mail/credencial sem checagem real —
+// isso já foi um bug de seguranca grave neste arquivo (auth bypass).
 export async function requestAdminLogin(payload: { email: string; password: string }) {
   return postJSON<{ session: AdminSessionPayload }>('/api/admin/login', payload);
 }
@@ -93,4 +91,3 @@ export async function verifyAdminSession(payload: { sessionToken: string }) {
 export async function requestAdminLogout(payload: { sessionToken: string }) {
   return postJSON<{ ok: boolean }>('/api/admin/logout', payload);
 }
-
