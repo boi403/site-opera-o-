@@ -15,8 +15,8 @@ export interface AdminSessionPayload {
 const configuredApiUrl = ((globalThis as any).__AI_API_URL__ || '').trim();
 const AI_API_URL = configuredApiUrl.replace(/\/+$/, '');
 
-async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${AI_API_URL}${path}`, {
+async function doFetch<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
@@ -36,6 +36,18 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+// Endpoints de IA (concierge/copilot/etc.) rodam no ai-server.mjs (Node),
+// que pode estar em outra origem — por isso usam AI_API_URL.
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  return doFetch<T>(`${AI_API_URL}${path}`, body);
+}
+
+// api/auth.php roda no MESMO hosting PHP que serve o site (kinghost), nunca
+// no ai-server.mjs — por isso é sempre same-origin, sem prefixo de AI_API_URL.
+async function postAdminJSON<T>(path: string, body: unknown): Promise<T> {
+  return doFetch<T>(path, body);
 }
 
 export async function requestConciergeReply(payload: {
@@ -73,21 +85,22 @@ export async function requestAIAnalytics(payload: { events: unknown[]; snapshot?
   }>('/api/analytics', payload);
 }
 
-// Login admin: SEMPRE validado no servidor (ai-server.mjs). Nunca adicione
-// um fallback client-side que aceite e-mail/credencial sem checagem real —
-// isso já foi um bug de seguranca grave neste arquivo (auth bypass).
+// Login admin: SEMPRE validado no servidor (api/auth.php, PHP no kinghost).
+// Nunca adicione um fallback client-side que aceite e-mail/credencial sem
+// checagem real — isso já foi um bug de seguranca grave neste arquivo
+// (auth bypass), duas vezes.
 export async function requestAdminLogin(payload: { email: string; password: string }) {
-  return postJSON<{ session: AdminSessionPayload }>('/api/admin/login', payload);
+  return postAdminJSON<{ session: AdminSessionPayload }>('/api/auth.php?action=login', payload);
 }
 
 export async function requestAdminGoogleLogin(payload: { name?: string; credential?: string }) {
-  return postJSON<{ session: AdminSessionPayload }>('/api/admin/google-login', payload);
+  return postAdminJSON<{ session: AdminSessionPayload }>('/api/auth.php?action=google-login', payload);
 }
 
 export async function verifyAdminSession(payload: { sessionToken: string }) {
-  return postJSON<{ active: boolean; session?: AdminSessionPayload }>('/api/admin/session', payload);
+  return postAdminJSON<{ active: boolean; session?: AdminSessionPayload }>('/api/auth.php?action=session', payload);
 }
 
 export async function requestAdminLogout(payload: { sessionToken: string }) {
-  return postJSON<{ ok: boolean }>('/api/admin/logout', payload);
+  return postAdminJSON<{ ok: boolean }>('/api/auth.php?action=logout', payload);
 }
