@@ -86,7 +86,34 @@ function verify_google_token_or_access(string $token, string $expectedClientId):
         }
     }
 
-    // 2. Tenta validar como Access Token do Google OAuth2
+    // 2. Tenta validar como Access Token do Google OAuth2.
+    // Primeiro confirma via tokeninfo que o access token foi emitido para ESTE
+    // client_id (o endpoint userinfo sozinho NAO garante isso — ele so confirma
+    // que o token e valido para ALGUM app Google, permitindo que um access token
+    // de qualquer outro app com escopo email/profile seja reaproveitado aqui).
+    $tokenInfoUrl = 'https://oauth2.googleapis.com/tokeninfo?access_token=' . urlencode($token);
+    $chInfo = curl_init($tokenInfoUrl);
+    curl_setopt_array($chInfo, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $bodyInfo = curl_exec($chInfo);
+    $statusInfo = curl_getinfo($chInfo, CURLINFO_HTTP_CODE);
+    curl_close($chInfo);
+
+    if ($bodyInfo === false || $statusInfo !== 200) {
+        return null;
+    }
+    $tokenClaims = json_decode((string)$bodyInfo, true);
+    if (!is_array($tokenClaims)) {
+        return null;
+    }
+    $tokenAud = (string)($tokenClaims['aud'] ?? $tokenClaims['azp'] ?? '');
+    if ($tokenAud !== $expectedClientId) {
+        return null;
+    }
+
     $ch2 = curl_init('https://www.googleapis.com/oauth2/v3/userinfo');
     curl_setopt_array($ch2, [
         CURLOPT_RETURNTRANSFER => true,
